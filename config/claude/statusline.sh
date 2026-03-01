@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Config: ~/.claude/statusline.conf (both enabled by default)
+# Config: ~/.claude/statusline.conf (all enabled by default)
 #   git=true|false       show repo/branch info
 #   context=true|false   show model/context bar
 SHOW_GIT=true
@@ -19,6 +19,8 @@ ICON_REPO=$'\xef\x81\xbb'    # U+F07B nf-fa-folder
 ICON_BRANCH=$'\xee\x82\xa0'  # U+E0A0 nf-pl-branch
 ICON_ROBOT=$'\xee\xae\x99'   # U+EB99 nf-cod-robot
 
+GREEN='\033[32m'
+RED='\033[31m'
 R='\033[0m'
 DIM='\033[90m'
 
@@ -28,7 +30,20 @@ if [ "$SHOW_GIT" = "true" ]; then
   REPO=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null)
   BRANCH=$(git branch --show-current 2>/dev/null)
   if [ -n "$REPO" ] && [ -n "$BRANCH" ]; then
-    GIT_INFO="${ICON_REPO} ${REPO}  ${ICON_BRANCH} ${BRANCH}${R}"
+    # Lines added/removed: branch diff vs main, fallback to working tree
+    DIFF_RAW=$(git diff --shortstat main...HEAD 2>/dev/null)
+    [ -z "$DIFF_RAW" ] && DIFF_RAW=$(git diff --shortstat 2>/dev/null)
+    LINES_ADD=0; LINES_DEL=0
+    if [ -n "$DIFF_RAW" ]; then
+      LINES_ADD=$(echo "$DIFF_RAW" | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+')
+      LINES_DEL=$(echo "$DIFF_RAW" | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+')
+      LINES_ADD=${LINES_ADD:-0}; LINES_DEL=${LINES_DEL:-0}
+    fi
+    DIFF_STAT=""
+    if [ "$LINES_ADD" -gt 0 ] || [ "$LINES_DEL" -gt 0 ]; then
+      DIFF_STAT="  ${GREEN}+${LINES_ADD}${R} ${RED}-${LINES_DEL}${R}"
+    fi
+    GIT_INFO="${ICON_REPO} ${REPO}  ${ICON_BRANCH} ${BRANCH}${DIFF_STAT}${R}"
   fi
 fi
 
@@ -36,9 +51,30 @@ fi
 CTX_INFO=""
 if [ "$SHOW_CONTEXT" = "true" ]; then
   MODEL=$(echo "$input" | jq -r '.model.display_name // "unknown"')
-  PCT=$(echo "$input" | jq -r '.context_window.used_percentage // 0' | cut -d. -f1)
   WINDOW=$(echo "$input" | jq -r '.context_window.context_window_size // 200000')
-  TOKENS=$(echo "$input" | jq "(.context_window.used_percentage // 0) / 100 * $WINDOW | floor")
+
+  # Calculate percentage from current_usage (survives compaction)
+  # Falls back to used_percentage if current_usage is null
+  PCT=$(echo "$input" | jq -r '
+    if .context_window.current_usage then
+      ((.context_window.current_usage.input_tokens // 0)
+       + (.context_window.current_usage.cache_creation_input_tokens // 0)
+       + (.context_window.current_usage.cache_read_input_tokens // 0))
+      / (.context_window.context_window_size // 200000) * 100 | floor
+    else
+      .context_window.used_percentage // 0 | floor
+    end
+  ')
+  TOKENS=$(echo "$input" | jq -r '
+    if .context_window.current_usage then
+      (.context_window.current_usage.input_tokens // 0)
+      + (.context_window.current_usage.cache_creation_input_tokens // 0)
+      + (.context_window.current_usage.cache_read_input_tokens // 0)
+    else
+      (.context_window.used_percentage // 0) / 100
+      * (.context_window.context_window_size // 200000) | floor
+    end
+  ')
 
   if [ "$TOKENS" -ge 1000 ]; then
     TOKENS_FMT="$((TOKENS / 1000))k"
@@ -60,7 +96,20 @@ if [ "$SHOW_CONTEXT" = "true" ]; then
     C='\033[32m'
   fi
 
-  CTX_INFO="${C}${ICON_ROBOT} ${MODEL}  ${BAR} ${PCT}%% ${DIM}│${C} ${TOKENS_FMT}${R}"
+  COST=$(echo "$input" | jq -r '.cost.total_cost_usd // 0')
+  COST_FMT=$(printf '$%.2f' "$COST")
+
+  DURATION_MS=$(echo "$input" | jq -r '.cost.total_duration_ms // 0')
+  DURATION_S=$((DURATION_MS / 1000))
+  DURATION_H=$((DURATION_S / 3600))
+  DURATION_M=$(((DURATION_S % 3600) / 60))
+  if [ "$DURATION_H" -gt 0 ]; then
+    DURATION_FMT="${DURATION_H}h${DURATION_M}m"
+  else
+    DURATION_FMT="${DURATION_M}m"
+  fi
+
+  CTX_INFO="${C}${ICON_ROBOT} ${MODEL}  ${BAR} ${PCT}%% ${DIM}│${C} ${TOKENS_FMT} ${DIM}│${C} ${COST_FMT} ${DIM}│${C} ${DURATION_FMT}${R}"
 fi
 
 # Combine with separator
