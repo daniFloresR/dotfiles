@@ -1,0 +1,17 @@
+# macOS
+.DS_Store
+
+# Backups created by install.sh
+*.backup.*
+
+# Editor artifacts
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Shell history / secrets that might end up here
+.zsh_history
+.env
+.env.*
