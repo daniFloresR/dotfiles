@@ -8,3 +8,7 @@
 # font-family = JetBrains Mono
 
 # keybind = super+three=goto_tab:3
+
+# Nerd Font symbols (comment both to disable)
+font-family = Menlo
+font-family = Symbols Nerd Font Mono

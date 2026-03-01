@@ -41,6 +41,11 @@ install_lazygit
 source "${DOTFILES_DIR}/lib/install_yazi.sh"
 install_yazi
 
+# Claude Code config
+# shellcheck source=lib/setup_claude.sh
+source "${DOTFILES_DIR}/lib/setup_claude.sh"
+setup_claude
+
 # Shell integration (last, after all tools are installed)
 # shellcheck source=lib/shell_integration.sh
 source "${DOTFILES_DIR}/lib/shell_integration.sh"
