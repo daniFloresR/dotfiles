@@ -1,0 +1,10 @@
+# Ghostty Configuration
+# https://ghostty.org/docs/config
+#
+# Run `ghostty +show-config --default --docs` to see all available options.
+# Reload config: Cmd+Shift+, (macOS) or Ctrl+Shift+, (Linux).
+
+# font-size = 14
+# font-family = JetBrains Mono
+
+# keybind = super+three=goto_tab:3
