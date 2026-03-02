@@ -30,9 +30,9 @@ if [ "$SHOW_GIT" = "true" ]; then
   REPO=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null)
   BRANCH=$(git branch --show-current 2>/dev/null)
   if [ -n "$REPO" ] && [ -n "$BRANCH" ]; then
-    # Lines added/removed: branch diff vs main, fallback to working tree
+    # Lines added/removed: branch diff vs main, fallback to all uncommitted (staged+unstaged)
     DIFF_RAW=$(git diff --shortstat main...HEAD 2>/dev/null)
-    [ -z "$DIFF_RAW" ] && DIFF_RAW=$(git diff --shortstat 2>/dev/null)
+    [ -z "$DIFF_RAW" ] && DIFF_RAW=$(git diff --shortstat HEAD 2>/dev/null)
     LINES_ADD=0; LINES_DEL=0; FILES_CHANGED=0
     if [ -n "$DIFF_RAW" ]; then
       LINES_ADD=$(echo "$DIFF_RAW" | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+')
@@ -40,9 +40,23 @@ if [ "$SHOW_GIT" = "true" ]; then
       FILES_CHANGED=$(echo "$DIFF_RAW" | grep -oE '[0-9]+ file' | grep -oE '[0-9]+')
       LINES_ADD=${LINES_ADD:-0}; LINES_DEL=${LINES_DEL:-0}; FILES_CHANGED=${FILES_CHANGED:-0}
     fi
+    # Include untracked files in counts (lines + file count)
+    UNTRACKED_FILES=$(git ls-files --others --exclude-standard 2>/dev/null)
+    UNTRACKED=0; UNTRACKED_LINES=0
+    if [ -n "$UNTRACKED_FILES" ]; then
+      UNTRACKED=$(echo "$UNTRACKED_FILES" | wc -l | tr -d ' ')
+      UNTRACKED_LINES=$(echo "$UNTRACKED_FILES" | xargs cat 2>/dev/null | wc -l | tr -d ' ')
+      UNTRACKED_LINES=${UNTRACKED_LINES:-0}
+    fi
+    FILES_CHANGED=$((FILES_CHANGED + UNTRACKED))
+    LINES_ADD=$((LINES_ADD + UNTRACKED_LINES))
     DIFF_STAT=""
-    if [ "$LINES_ADD" -gt 0 ] || [ "$LINES_DEL" -gt 0 ]; then
-      DIFF_STAT="  ${GREEN}+${LINES_ADD}${R} ${RED}-${LINES_DEL}${R} ${DIM}(${FILES_CHANGED}f)${R}"
+    if [ "$LINES_ADD" -gt 0 ] || [ "$LINES_DEL" -gt 0 ] || [ "$FILES_CHANGED" -gt 0 ]; then
+      if [ "$LINES_ADD" -gt 0 ] || [ "$LINES_DEL" -gt 0 ]; then
+        DIFF_STAT="  ${GREEN}+${LINES_ADD}${R} ${RED}-${LINES_DEL}${R} ${DIM}(${FILES_CHANGED}f)${R}"
+      else
+        DIFF_STAT="  ${DIM}(${FILES_CHANGED}f)${R}"
+      fi
     fi
     GIT_INFO="${ICON_REPO} ${REPO}  ${ICON_BRANCH} ${BRANCH}${DIFF_STAT}${R}"
   fi
