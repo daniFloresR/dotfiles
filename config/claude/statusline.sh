@@ -33,15 +33,16 @@ if [ "$SHOW_GIT" = "true" ]; then
     # Lines added/removed: branch diff vs main, fallback to working tree
     DIFF_RAW=$(git diff --shortstat main...HEAD 2>/dev/null)
     [ -z "$DIFF_RAW" ] && DIFF_RAW=$(git diff --shortstat 2>/dev/null)
-    LINES_ADD=0; LINES_DEL=0
+    LINES_ADD=0; LINES_DEL=0; FILES_CHANGED=0
     if [ -n "$DIFF_RAW" ]; then
       LINES_ADD=$(echo "$DIFF_RAW" | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+')
       LINES_DEL=$(echo "$DIFF_RAW" | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+')
-      LINES_ADD=${LINES_ADD:-0}; LINES_DEL=${LINES_DEL:-0}
+      FILES_CHANGED=$(echo "$DIFF_RAW" | grep -oE '[0-9]+ file' | grep -oE '[0-9]+')
+      LINES_ADD=${LINES_ADD:-0}; LINES_DEL=${LINES_DEL:-0}; FILES_CHANGED=${FILES_CHANGED:-0}
     fi
     DIFF_STAT=""
     if [ "$LINES_ADD" -gt 0 ] || [ "$LINES_DEL" -gt 0 ]; then
-      DIFF_STAT="  ${GREEN}+${LINES_ADD}${R} ${RED}-${LINES_DEL}${R}"
+      DIFF_STAT="  ${GREEN}+${LINES_ADD}${R} ${RED}-${LINES_DEL}${R} ${DIM}(${FILES_CHANGED}f)${R}"
     fi
     GIT_INFO="${ICON_REPO} ${REPO}  ${ICON_BRANCH} ${BRANCH}${DIFF_STAT}${R}"
   fi
