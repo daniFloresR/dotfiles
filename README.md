@@ -39,6 +39,8 @@ Configs live in `config/` and are symlinked to their expected locations:
 | `config/ghostty/config` | `~/Library/Application Support/com.mitchellh.ghostty/config` | `~/.config/ghostty/config` |
 | `config/lazygit/config.yml` | `~/Library/Application Support/lazygit/config.yml` | `~/.config/lazygit/config.yml` |
 | `config/yazi/yazi.toml` | `~/.config/yazi/yazi.toml` | `~/.config/yazi/yazi.toml` |
+| `config/claude/settings.json` | `~/.claude/settings.json` | `~/.claude/settings.json` |
+| `config/claude/statusline.sh` | `~/.claude/statusline.sh` | `~/.claude/statusline.sh` |
 
 Edit the files in this repo -- changes apply immediately (or after config reload).
 
