@@ -119,6 +119,96 @@ append_block_if_missing() {
     log_success "Added [dotfiles:${marker}] block to .zshrc"
 }
 
+# --- apt-get update wrapper ---
+
+# apt_update()
+#   Runs `sudo apt-get update -qq` unless DOTFILES_SKIP_APT_UPDATE=1.
+apt_update() {
+    if [ "${DOTFILES_SKIP_APT_UPDATE:-0}" = "1" ]; then
+        log_warn "Skipping apt-get update (DOTFILES_SKIP_APT_UPDATE=1)"
+        return 0
+    fi
+    sudo apt-get update -qq
+}
+
+# --- Interactive Tool Selector ---
+
+# ensure_gum()
+#   Installs gum if not already present (brew on macOS, GitHub release on Linux).
+ensure_gum() {
+    if command_exists gum; then
+        log_success "gum already installed"
+        return 0
+    fi
+
+    log_info "Installing gum..."
+    case "$DOTFILES_OS" in
+        macos)
+            brew install gum
+            ;;
+        *)
+            local version
+            version="$(github_latest_release charmbracelet gum)"
+            local arch_suffix
+            case "$DOTFILES_ARCH" in
+                x86_64)  arch_suffix="x86_64" ;;
+                aarch64) arch_suffix="arm64" ;;
+                *)
+                    log_error "Unsupported architecture for gum: $DOTFILES_ARCH"
+                    return 1
+                    ;;
+            esac
+            local url="https://github.com/charmbracelet/gum/releases/download/${version}/gum_${version#v}_linux_${arch_suffix}.tar.gz"
+            local tmp_dir
+            tmp_dir="$(mktemp -d)"
+            curl -fsSL "$url" | tar xz -C "$tmp_dir"
+            mv "${tmp_dir}"/gum_*/gum "${HOME}/.local/bin/gum"
+            chmod +x "${HOME}/.local/bin/gum"
+            rm -rf "$tmp_dir"
+            ;;
+    esac
+    log_success "gum installed"
+}
+
+# _SELECTED_TOOLS -- newline-separated list populated by select_tools()
+_SELECTED_TOOLS=""
+
+# select_tools()
+#   Presents an interactive multi-select via gum. Falls back to all items
+#   when gum is unavailable or stdin is not a TTY (CI).
+select_tools() {
+    local -a items=(
+        "Ghostty -- GPU-accelerated terminal"
+        "lazygit -- TUI git client"
+        "Yazi -- Terminal file manager"
+        "Claude Code -- Config, settings, and agents"
+        "Shell integration -- zsh aliases (lg, y, zoxide)"
+    )
+    local all_selected
+    all_selected="$(printf '%s\n' "${items[@]}")"
+
+    if ! command_exists gum || [ ! -t 0 ]; then
+        log_info "Non-interactive mode: selecting all items"
+        _SELECTED_TOOLS="$all_selected"
+        return 0
+    fi
+
+    log_info "Select what to install (space to toggle, enter to confirm):"
+    _SELECTED_TOOLS="$(gum choose --no-limit \
+        --selected "${items[0]},${items[1]},${items[2]},${items[3]},${items[4]}" \
+        "${items[@]}")" || true
+
+    if [ -z "$_SELECTED_TOOLS" ]; then
+        log_warn "Nothing selected. No tools or configs will be installed."
+    fi
+}
+
+# is_selected(tool_name)
+#   Returns 0 if the tool was selected, 1 otherwise.
+is_selected() {
+    echo "$_SELECTED_TOOLS" | grep -qF "$1"
+}
+
 # github_latest_release(owner, repo)
 #   Prints the latest release tag name (e.g. "v0.5.0").
 github_latest_release() {

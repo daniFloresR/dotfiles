@@ -62,7 +62,7 @@ _install_yazi_linux_deps() {
     case "$DOTFILES_OS" in
         ubuntu)
             log_info "Installing Yazi dependencies via apt..."
-            sudo apt-get update -qq
+            apt_update
             sudo apt-get install -y fd-find ripgrep fzf zoxide p7zip-full imagemagick
             ;;
         fedora)

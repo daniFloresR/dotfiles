@@ -45,6 +45,32 @@ Configs live in `config/` and are symlinked to their expected locations:
 
 Edit the files in this repo -- changes apply immediately (or after config reload).
 
+## Options
+
+### Interactive Selector
+
+The installer presents an interactive menu (powered by [gum](https://github.com/charmbracelet/gum)) where you can pick exactly what to install:
+
+```
+Ghostty          -- GPU-accelerated terminal
+lazygit          -- TUI git client
+Yazi             -- Terminal file manager
+Claude Code      -- Config, settings, and agents
+Shell integration -- zsh aliases (lg, y, zoxide)
+```
+
+All items are pre-selected. Deselect with space, confirm with enter.
+
+In non-interactive environments (CI, piped input), the selector is skipped and everything is installed -- preserving the original behavior.
+
+### Skip apt-get update
+
+On Ubuntu/Debian, `apt-get update` runs before installing packages. To skip it (e.g. corporate policies or pre-warmed containers):
+
+```bash
+DOTFILES_SKIP_APT_UPDATE=1 ./install.sh
+```
+
 ## Supported Platforms
 
 - macOS (Apple Silicon and Intel)

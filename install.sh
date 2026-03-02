@@ -28,30 +28,40 @@ case "$DOTFILES_OS" in
         ;;
 esac
 
+# Interactive tool selector
+ensure_gum || true
+select_tools
+
 # Install tools
 # shellcheck source=lib/install_ghostty.sh
 source "${DOTFILES_DIR}/lib/install_ghostty.sh"
-install_ghostty
+is_selected "Ghostty" && install_ghostty
 
 # shellcheck source=lib/install_lazygit.sh
 source "${DOTFILES_DIR}/lib/install_lazygit.sh"
-install_lazygit
+is_selected "lazygit" && install_lazygit
 
 # shellcheck source=lib/install_yazi.sh
 source "${DOTFILES_DIR}/lib/install_yazi.sh"
-install_yazi
+is_selected "Yazi" && install_yazi
 
 # Claude Code config
 # shellcheck source=lib/setup_claude.sh
 source "${DOTFILES_DIR}/lib/setup_claude.sh"
-setup_claude
+is_selected "Claude Code" && setup_claude
 
 # Shell integration (last, after all tools are installed)
 # shellcheck source=lib/shell_integration.sh
 source "${DOTFILES_DIR}/lib/shell_integration.sh"
-setup_shell_integration
+is_selected "Shell integration" && setup_shell_integration
 
 # Summary
 echo ""
-log_success "All done! Installed: Ghostty, lazygit, Yazi"
+if [ -n "$_SELECTED_TOOLS" ]; then
+    # Strip " -- description" suffixes for a clean summary
+    local_summary="$(echo "$_SELECTED_TOOLS" | sed 's/ -- .*//' | tr '\n' ',' | sed 's/,$//' | sed 's/,/, /g')"
+    log_success "All done! Installed: ${local_summary}"
+else
+    log_success "All done! (nothing selected)"
+fi
 log_info "Run 'source ~/.zshrc' or open a new terminal to pick up shell changes."

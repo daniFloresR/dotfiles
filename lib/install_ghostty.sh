@@ -15,10 +15,10 @@ install_ghostty() {
             ubuntu)
                 log_info "Installing Ghostty from ghostty-org PPA..."
                 if command_exists apt-get; then
-                    sudo apt-get update -qq
+                    apt_update
                     sudo apt-get install -y software-properties-common
                     sudo add-apt-repository -y ppa:ghostty-org/ppa
-                    sudo apt-get update -qq
+                    apt_update
                     sudo apt-get install -y ghostty
                 else
                     log_error "apt-get not found. Install Ghostty manually: https://ghostty.org/download"
