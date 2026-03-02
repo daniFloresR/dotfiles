@@ -40,6 +40,7 @@ Configs live in `config/` and are symlinked to their expected locations:
 | `config/lazygit/config.yml` | `~/Library/Application Support/lazygit/config.yml` | `~/.config/lazygit/config.yml` |
 | `config/yazi/yazi.toml` | `~/.config/yazi/yazi.toml` | `~/.config/yazi/yazi.toml` |
 | `config/claude/settings.json` | `~/.claude/settings.json` | `~/.claude/settings.json` |
+| `config/claude/agents/` | `~/.claude/agents/` | `~/.claude/agents/` |
 | `config/claude/statusline.sh` | `~/.claude/statusline.sh` | `~/.claude/statusline.sh` |
 
 Edit the files in this repo -- changes apply immediately (or after config reload).
