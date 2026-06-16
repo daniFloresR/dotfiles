@@ -24,7 +24,22 @@ install_yazi() {
 }
 
 _install_yazi_linux() {
-    # Install yazi binary from GitHub releases
+    # Try prebuilt binary first, fall back to cargo if glibc is too old
+    if _try_install_yazi_prebuilt; then
+        log_success "Prebuilt Yazi binary works on this system"
+    else
+        log_warn "Prebuilt binary incompatible (glibc too old), building from source..."
+        _install_yazi_from_source
+    fi
+
+    # Install deps via distro package manager
+    _install_yazi_linux_deps
+
+    # Install nerd font
+    _install_nerd_font_linux
+}
+
+_try_install_yazi_prebuilt() {
     local version
     version="$(github_latest_release sxyazi yazi)"
 
@@ -51,11 +66,29 @@ _install_yazi_linux() {
     chmod +x "${HOME}/.local/bin/yazi" "${HOME}/.local/bin/ya"
     rm -rf "$tmp_dir"
 
-    # Install deps via distro package manager
-    _install_yazi_linux_deps
+    # Test if the binary actually runs on this system's glibc
+    if ! "${HOME}/.local/bin/yazi" --version &>/dev/null; then
+        log_warn "Prebuilt Yazi binary failed (likely GLIBC version mismatch)"
+        rm -f "${HOME}/.local/bin/yazi" "${HOME}/.local/bin/ya"
+        return 1
+    fi
+}
 
-    # Install nerd font
-    _install_nerd_font_linux
+_ensure_rust() {
+    if command_exists cargo; then
+        log_success "Rust toolchain already installed"
+        return 0
+    fi
+    log_info "Installing Rust toolchain..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    # shellcheck disable=SC1091
+    source "${HOME}/.cargo/env"
+}
+
+_install_yazi_from_source() {
+    _ensure_rust
+    log_info "Building Yazi from source (this may take a few minutes)..."
+    cargo install --locked yazi-fm yazi-cli
 }
 
 _install_yazi_linux_deps() {
