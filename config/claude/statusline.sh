@@ -3,19 +3,26 @@
 # Config: ~/.claude/statusline.conf (all enabled by default)
 #   git=true|false       show repo/branch info
 #   context=true|false   show model/context bar
-#   pr=true|false        show the open PR url for the branch (uses gh, cached)
+#   pr=true|false        show the open PR for the branch (from the .pr JSON field)
 SHOW_GIT=true
 SHOW_CONTEXT=true
 SHOW_PR=true
 CONF="$HOME/.claude/statusline.conf"
-if [ -f "$CONF" ]; then
-  eval "$(grep -E '^(git|context|pr)=' "$CONF")"
-  SHOW_GIT="${git:-true}"
-  SHOW_CONTEXT="${context:-true}"
-  SHOW_PR="${pr:-true}"
-fi
+# The config file is data, not code -- read it without eval.
+conf_get() {
+  local v=""
+  [ -f "$CONF" ] && v=$(sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\([a-zA-Z]*\).*/\1/p" "$CONF" 2>/dev/null | tail -1)
+  printf '%s' "${v:-$2}"
+}
+SHOW_GIT=$(conf_get git true)
+SHOW_CONTEXT=$(conf_get context true)
+SHOW_PR=$(conf_get pr true)
 
 input=$(cat)
+
+# Claude Code does not guarantee the directory the script runs from.
+CUR_DIR=$(echo "$input" | jq -r '.workspace.current_dir // .cwd // ""')
+[ -n "$CUR_DIR" ] && cd "$CUR_DIR" 2>/dev/null
 
 # Nerd Font icons (raw UTF-8 bytes -- survives editors and bash 3.2)
 ICON_REPO=$'\xef\x81\xbb'      # U+F07B nf-fa-folder
@@ -25,12 +32,15 @@ ICON_WORKTREE=$'\xef\x84\xa6'  # U+F126 nf-fa-code_fork
 ICON_ROBOT=$'\xee\xae\x99'     # U+EB99 nf-cod-robot
 ICON_STATS=$'\xef\x82\x80'     # U+F080 nf-fa-bar_chart
 
-GREEN='\033[32m'
-RED='\033[31m'
-CYAN='\033[36m'
-BLUE='\033[34m'
-R='\033[0m'
-DIM='\033[90m'
+# Real ESC bytes, so the final output can be printed with '%s' and neither %
+# nor \ in the data (branch names, paths) is reinterpreted as a format spec.
+E=$'\033'
+GREEN="${E}[32m"
+RED="${E}[31m"
+CYAN="${E}[36m"
+BLUE="${E}[34m"
+R="${E}[0m"
+DIM="${E}[90m"
 
 # Git section
 GIT_INFO=""
@@ -39,7 +49,15 @@ if [ "$SHOW_GIT" = "true" ]; then
   BRANCH=$(git branch --show-current 2>/dev/null)
   if [ -n "$REPO" ] && [ -n "$BRANCH" ]; then
     # Lines added/removed: branch diff vs main, fallback to all uncommitted (staged+unstaged)
-    DIFF_RAW=$(git diff --shortstat main...HEAD 2>/dev/null)
+    BASE=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)
+    BASE="${BASE#origin/}"
+    if [ -z "$BASE" ]; then
+      for c in main master trunk; do
+        git rev-parse --verify -q "$c" >/dev/null 2>&1 && BASE="$c" && break
+      done
+    fi
+    DIFF_RAW=""
+    [ -n "$BASE" ] && DIFF_RAW=$(git diff --shortstat "$BASE"...HEAD 2>/dev/null)
     [ -z "$DIFF_RAW" ] && DIFF_RAW=$(git diff --shortstat HEAD 2>/dev/null)
     LINES_ADD=0; LINES_DEL=0; FILES_CHANGED=0
     if [ -n "$DIFF_RAW" ]; then
@@ -49,13 +67,19 @@ if [ "$SHOW_GIT" = "true" ]; then
       LINES_ADD=${LINES_ADD:-0}; LINES_DEL=${LINES_DEL:-0}; FILES_CHANGED=${FILES_CHANGED:-0}
     fi
     # Include untracked files in counts (lines + file count)
-    UNTRACKED_FILES=$(git ls-files --others --exclude-standard 2>/dev/null)
+    # -z with read -d '' survives filenames containing spaces; grep -I skips
+    # binaries; the line count is capped so repos with thousands of untracked
+    # files don't stall the render.
     UNTRACKED=0; UNTRACKED_LINES=0
-    if [ -n "$UNTRACKED_FILES" ]; then
-      UNTRACKED=$(echo "$UNTRACKED_FILES" | wc -l | tr -d ' ')
-      UNTRACKED_LINES=$(echo "$UNTRACKED_FILES" | xargs cat 2>/dev/null | wc -l | tr -d ' ')
-      UNTRACKED_LINES=${UNTRACKED_LINES:-0}
-    fi
+    while IFS= read -r -d '' f; do
+      UNTRACKED=$((UNTRACKED + 1))
+      [ "$UNTRACKED" -gt 200 ] && continue
+      [ -f "$f" ] || continue
+      grep -Iq . "$f" 2>/dev/null || continue
+      n=$(wc -l < "$f" 2>/dev/null | tr -d ' ')
+      [ -n "$(tail -c1 "$f" 2>/dev/null)" ] && n=$((${n:-0} + 1))
+      UNTRACKED_LINES=$((UNTRACKED_LINES + ${n:-0}))
+    done < <(git ls-files -z --others --exclude-standard 2>/dev/null)
     FILES_CHANGED=$((FILES_CHANGED + UNTRACKED))
     LINES_ADD=$((LINES_ADD + UNTRACKED_LINES))
     DIFF_STAT=""
@@ -68,46 +92,26 @@ if [ "$SHOW_GIT" = "true" ]; then
     fi
     REL_PATH=$(git rev-parse --show-toplevel 2>/dev/null | sed "s|^$HOME/||")
 
-    # Detect linked worktree: its git-dir lives under <main>/.git/worktrees/<name>.
-    # Rendered as its own line, only when inside a worktree.
+    # Claude Code already resolves this: workspace.git_worktree for any git
+    # worktree, worktree.name for --worktree sessions.
     WORKTREE_LINE=""
-    GIT_DIR=$(git rev-parse --absolute-git-dir 2>/dev/null)
-    case "$GIT_DIR" in
-      */worktrees/*)
-        WT_NAME=$(basename "$GIT_DIR")
-        WORKTREE_LINE="${DIM}${ICON_WORKTREE} worktree${R}  ${CYAN}${WT_NAME}${R}"
-        ;;
-    esac
+    WT_NAME=$(echo "$input" | jq -r '.workspace.git_worktree // .worktree.name // ""')
+    [ -n "$WT_NAME" ] && WORKTREE_LINE="${DIM}${ICON_WORKTREE} worktree${R}  ${CYAN}${WT_NAME}${R}"
 
-    # Open PR for this branch. Network calls (gh) are expensive, so we cache the
-    # result per repo+branch and refresh in the background: the render reads the
-    # cached value instantly and never blocks on the network (stale-while-revalidate).
+    # The branch's open PR arrives in the JSON: .pr is present only while a
+    # PR (or GitLab merge request) is open and disappears once it merges or
+    # closes. This used to be a backgrounded `gh pr view` with a 120s cache:
+    # a network call, a dependency on authenticated gh, data up to two
+    # minutes stale, and no review_state. None of it is needed.
     PR_LINE=""
-    if [ "$SHOW_PR" = "true" ] && command -v gh >/dev/null 2>&1; then
-      PR_TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null)
-      PR_CACHE_DIR="${TMPDIR:-/tmp}/claude-statusline"
-      mkdir -p "$PR_CACHE_DIR" 2>/dev/null
-      PR_KEY=$(printf '%s' "${PR_TOPLEVEL}:${BRANCH}" | tr -c 'a-zA-Z0-9' '_' | cut -c1-200)
-      PR_CACHE="$PR_CACHE_DIR/pr-${PR_KEY}"
-      PR_TTL=120
-
-      PR_NUM=""; PR_URL=""
-      [ -f "$PR_CACHE" ] && IFS=$'\t' read -r PR_NUM PR_URL < "$PR_CACHE"
-
-      PR_AGE=999999
-      if [ -f "$PR_CACHE" ]; then
-        PR_MTIME=$(stat -f %m "$PR_CACHE" 2>/dev/null || stat -c %Y "$PR_CACHE" 2>/dev/null || echo 0)
-        PR_AGE=$(( $(date +%s) - PR_MTIME ))
+    if [ "$SHOW_PR" = "true" ]; then
+      PR_NUM=$(echo "$input" | jq -r '.pr.number // ""')
+      PR_URL=$(echo "$input" | jq -r '.pr.url // ""')
+      PR_STATE=$(echo "$input" | jq -r '.pr.review_state // ""')
+      if [ -n "$PR_URL" ]; then
+        PR_LINE="${DIM}${ICON_PR} pr${R}        ${BLUE}${PR_URL}${R}"
+        [ -n "$PR_STATE" ] && PR_LINE="${PR_LINE}  ${DIM}${PR_STATE}${R}"
       fi
-      if [ "$PR_AGE" -ge "$PR_TTL" ]; then
-        touch "$PR_CACHE" 2>/dev/null  # claim now so rapid re-renders don't stampede gh
-        (
-          OUT=$(gh pr view --json number,url --jq '"\(.number)\t\(.url)"' 2>/dev/null)
-          printf '%s\n' "$OUT" > "${PR_CACHE}.$$" && mv "${PR_CACHE}.$$" "$PR_CACHE"
-        ) >/dev/null 2>&1 &
-      fi
-
-      [ -n "$PR_URL" ] && PR_LINE="${DIM}${ICON_PR} pr${R}        ${BLUE}${PR_URL}${R}"
     fi
 
     ROUTE_LINE="${DIM}${ICON_REPO} route${R}     ${REL_PATH}"
@@ -157,11 +161,11 @@ if [ "$SHOW_CONTEXT" = "true" ]; then
   for ((i = 0; i < EMPTY; i++)); do BAR+="░"; done
 
   if [ "$PCT" -ge 80 ]; then
-    C='\033[31m'
+    C="${E}[31m"
   elif [ "$PCT" -ge 60 ]; then
-    C='\033[33m'
+    C="${E}[33m"
   else
-    C='\033[32m'
+    C="${E}[32m"
   fi
 
   COST=$(echo "$input" | jq -r '.cost.total_cost_usd // 0')
@@ -177,23 +181,33 @@ if [ "$SHOW_CONTEXT" = "true" ]; then
     DURATION_FMT="${DURATION_M}m"
   fi
 
-  EFFORT=$(jq -r '.effortLevel // "default"' "$HOME/.claude/settings.json" 2>/dev/null)
+  # Effort arrives on stdin as .effort.level. settings.json has no
+  # .effortLevel key at all, so this always rendered "default".
+  # .effort is absent when the model doesn't support the parameter.
+  EFFORT=$(echo "$input" | jq -r '.effort.level // ""')
   EFFORT_FMT="${EFFORT}"
 
   MODEL_TEXT="${MODEL}"
-  USAGE_INFO="${C}${BAR} ${PCT}%% ${DIM}│${C} ${TOKENS_FMT} ${DIM}│${C} ${COST_FMT} ${DIM}│${C} ${DURATION_FMT}${R}"
+  USAGE_INFO="${C}${BAR} ${PCT}% ${DIM}│${C} ${TOKENS_FMT} ${DIM}│${C} ${COST_FMT} ${DIM}│${C} ${DURATION_FMT}${R}"
 fi
 
 # Emit one labeled line per section: route, branch, [worktree], model, usage
 MODEL_LINE=""; USAGE_LINE=""
-[ -n "$MODEL_TEXT" ] && MODEL_LINE="${DIM}${ICON_ROBOT} model${R}     ${GREEN}${MODEL_TEXT}  ${DIM}│${GREEN} ${EFFORT_FMT}${R}"
+if [ -n "$MODEL_TEXT" ]; then
+  MODEL_LINE="${DIM}${ICON_ROBOT} model${R}     ${GREEN}${MODEL_TEXT}${R}"
+  # .effort is absent for models without the parameter: don't leave a dangling separator.
+  [ -n "$EFFORT_FMT" ] && MODEL_LINE="${MODEL_LINE}  ${DIM}│${GREEN} ${EFFORT_FMT}${R}"
+fi
 [ -n "$USAGE_INFO" ] && USAGE_LINE="${DIM}${ICON_STATS} usage${R}     ${USAGE_INFO}"
 
+NL=$'\n'
 OUT=""
-[ -n "$ROUTE_LINE" ]    && OUT="${OUT:+${OUT}\n}${ROUTE_LINE}"
-[ -n "$BRANCH_LINE" ]   && OUT="${OUT:+${OUT}\n}${BRANCH_LINE}"
-[ -n "$PR_LINE" ]       && OUT="${OUT:+${OUT}\n}${PR_LINE}"
-[ -n "$WORKTREE_LINE" ] && OUT="${OUT:+${OUT}\n}${WORKTREE_LINE}"
-[ -n "$MODEL_LINE" ]    && OUT="${OUT:+${OUT}\n}${MODEL_LINE}"
-[ -n "$USAGE_LINE" ]    && OUT="${OUT:+${OUT}\n}${USAGE_LINE}"
-[ -n "$OUT" ] && printf "${OUT}\n"
+[ -n "$ROUTE_LINE" ]    && OUT="${OUT:+${OUT}${NL}}${ROUTE_LINE}"
+[ -n "$BRANCH_LINE" ]   && OUT="${OUT:+${OUT}${NL}}${BRANCH_LINE}"
+[ -n "$PR_LINE" ]       && OUT="${OUT:+${OUT}${NL}}${PR_LINE}"
+[ -n "$WORKTREE_LINE" ] && OUT="${OUT:+${OUT}${NL}}${WORKTREE_LINE}"
+[ -n "$MODEL_LINE" ]    && OUT="${OUT:+${OUT}${NL}}${MODEL_LINE}"
+[ -n "$USAGE_LINE" ]    && OUT="${OUT:+${OUT}${NL}}${USAGE_LINE}"
+# '%s' instead of the string as format: a branch like feat/100%-coverage came
+# out as feat/100overage because printf ate the % as a format specifier.
+[ -n "$OUT" ] && printf '%s\n' "$OUT"
